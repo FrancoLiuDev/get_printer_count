@@ -1,0 +1,25 @@
+{
+  "name": "hp-printer-count",
+  "version": "1.0.0",
+  "description": "HP LEDM ProductUsageDyn 批次擷取工具",
+  "main": "GetPrinterCount.js",
+  "scripts": {
+    "start": "node GetPrinterCount.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "hp",
+    "printer",
+    "ledm",
+    "usage",
+    "counter"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2",
+    "commander": "^11.1.0",
+    "xml2js": "^0.6.2",
+    "xlsx": "^0.18.5"
+  }
+}

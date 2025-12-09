@@ -61,10 +61,10 @@ venv.bak/
 Thumbs.db
 
 # Project specific
-*.xlsx
+# *.xlsx  # 允許 printers.xlsx 範例檔
 *.csv
 *.zip
 備份.zip
 神腦國際抄表用.xlsx
 hp_usage_output.xlsx
-printers.xlsx
+# printers.xlsx  # 允許範例檔案

@@ -93,9 +93,11 @@ def CP1525_M251nw_M254dw_M255dw(xml_source: Union[str, Path, bytes]) -> Dict[str
 def M4103fdn(xml_source: Union[str, Path, bytes]) -> Dict[str, Any]:
     """4103fdn：PCL6Impressions 的 TotalImpressions"""
     root = _load_xml_root(xml_source)
-    pcl6_total = _get_text(root.find("./pudyn:PrinterSubunit/dd:PCL6Impressions/dd:TotalImpressions", NS))
+    # pcl6_total = _get_text(root.find("./pudyn:PrinterSubunit/dd:PCL6Impressions/dd:TotalImpressions", NS))
+    printer_total = _get_text(root.find("./pudyn:PrinterSubunit/dd:TotalImpressions", NS))
+    
     return {
-        "pcl6_total_impressions": _to_int(pcl6_total),
+        "printer_total_impressions": _to_int(printer_total),
     }
 
 # ---------------------------

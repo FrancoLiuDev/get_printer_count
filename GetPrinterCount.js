@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// -*- coding: utf-8 -*-
+ // -*- coding: utf-8 -*-
 // HP LEDM ProductUsageDyn 批次擷取（含 debug）
 // 解析器合併規則：
 //   - M225_M425_M426：M225dw / M425dn / M426fdn
@@ -54,9 +54,9 @@ function normalizeModel(s) {
 
 async function looksLikeProductUsageDyn(content, debug = false) {
     try {
-        const result = await parseStringPromise(content, { 
+        const result = await parseStringPromise(content, {
             explicitArray: true,
-            preserveChildrenOrder: true 
+            preserveChildrenOrder: true
         });
         const rootTag = Object.keys(result)[0];
         const ok = rootTag.endsWith('ProductUsageDyn');
@@ -77,11 +77,11 @@ async function M225_M425_M426(xmlContent) {
     const result = await parseStringPromise(xmlContent, { explicitArray: true });
     const rootTag = Object.keys(result)[0];
     const root = result[rootTag];
-    
+
     let printerTotal = null;
     let copyTotal = null;
     let faxTotal = null;
-    
+
     // 嘗試找到 PrinterSubunit -> TotalImpressions
     if (root['pudyn:PrinterSubunit']) {
         const printerSubunit = root['pudyn:PrinterSubunit'][0];
@@ -89,7 +89,7 @@ async function M225_M425_M426(xmlContent) {
             printerTotal = getText(printerSubunit['dd:TotalImpressions']);
         }
     }
-    
+
     // 嘗試找到 CopyApplicationSubunit -> TotalImpressions
     if (root['pudyn:CopyApplicationSubunit']) {
         const copySubunit = root['pudyn:CopyApplicationSubunit'][0];
@@ -97,7 +97,7 @@ async function M225_M425_M426(xmlContent) {
             copyTotal = getText(copySubunit['dd:TotalImpressions']);
         }
     }
-    
+
     // 嘗試找到 FaxApplicationSubunit -> TotalImpressions
     if (root['pudyn:FaxApplicationSubunit']) {
         const faxSubunit = root['pudyn:FaxApplicationSubunit'][0];
@@ -105,7 +105,7 @@ async function M225_M425_M426(xmlContent) {
             faxTotal = getText(faxSubunit['dd:TotalImpressions']);
         }
     }
-    
+
     return {
         printer_total_impressions: toInt(printerTotal),
         copy_total_impressions: toInt(copyTotal),
@@ -118,10 +118,10 @@ async function CP1525_M251nw_M254dw_M255dw(xmlContent) {
     const result = await parseStringPromise(xmlContent, { explicitArray: true });
     const rootTag = Object.keys(result)[0];
     const root = result[rootTag];
-    
+
     let mono = null;
     let color = null;
-    
+
     if (root['pudyn:PrinterSubunit']) {
         const printerSubunit = root['pudyn:PrinterSubunit'][0];
         if (printerSubunit['dd:MonochromeImpressions']) {
@@ -131,7 +131,7 @@ async function CP1525_M251nw_M254dw_M255dw(xmlContent) {
             color = getText(printerSubunit['dd:ColorImpressions']);
         }
     }
-    
+
     return {
         mono_impressions: toInt(mono),
         color_impressions: toInt(color),
@@ -143,19 +143,26 @@ async function M4103fdn(xmlContent) {
     const result = await parseStringPromise(xmlContent, { explicitArray: true });
     const rootTag = Object.keys(result)[0];
     const root = result[rootTag];
-    
+
     let pcl6Total = null;
-    
+
+    // if (root['pudyn:PrinterSubunit']) {
+    //     const printerSubunit = root['pudyn:PrinterSubunit'][0];
+    //     if (printerSubunit['dd:PCL6Impressions']) {
+    //         const pcl6 = printerSubunit['dd:PCL6Impressions'][0];
+    //         if (pcl6['dd:TotalImpressions']) {
+    //             pcl6Total = getText(pcl6['dd:TotalImpressions']);
+    //         }
+    //     }
+    // }
+
     if (root['pudyn:PrinterSubunit']) {
         const printerSubunit = root['pudyn:PrinterSubunit'][0];
-        if (printerSubunit['dd:PCL6Impressions']) {
-            const pcl6 = printerSubunit['dd:PCL6Impressions'][0];
-            if (pcl6['dd:TotalImpressions']) {
-                pcl6Total = getText(pcl6['dd:TotalImpressions']);
-            }
+        if (printerSubunit['dd:TotalImpressions']) {
+            pcl6Total = getText(printerSubunit['dd:TotalImpressions']);
         }
     }
-    
+
     return {
         pcl6_total_impressions: toInt(pcl6Total),
     };
@@ -172,14 +179,14 @@ const MODEL_KEYWORDS = {
     'm425dn': { name: 'M225_M425_M426', fn: M225_M425_M426 },
     'm426': { name: 'M225_M425_M426', fn: M225_M425_M426 },
     'm426fdn': { name: 'M225_M425_M426', fn: M225_M425_M426 },
-    
+
     // CP1525 / CP1525nw / M251nw / M254dw / M255dw -> 彩機兩值
     'cp1525': { name: 'CP1525_M251nw_M254dw_M255dw', fn: CP1525_M251nw_M254dw_M255dw },
     'cp1525nw': { name: 'CP1525_M251nw_M254dw_M255dw', fn: CP1525_M251nw_M254dw_M255dw },
     'm251nw': { name: 'CP1525_M251nw_M254dw_M255dw', fn: CP1525_M251nw_M254dw_M255dw },
     'm254dw': { name: 'CP1525_M251nw_M254dw_M255dw', fn: CP1525_M251nw_M254dw_M255dw },
     'm255dw': { name: 'CP1525_M251nw_M254dw_M255dw', fn: CP1525_M251nw_M254dw_M255dw },
-    
+
     // 4103fdn -> PCL6 TotalImpressions
     '4103fdn': { name: 'M4103fdn', fn: M4103fdn },
     'm4103fdn': { name: 'M4103fdn', fn: M4103fdn },
@@ -188,21 +195,21 @@ const MODEL_KEYWORDS = {
 
 function resolveParser(modelStr) {
     if (!modelStr) return { name: null, fn: null };
-    
+
     const norm = normalizeModel(modelStr);
-    
+
     // 完全匹配
     if (MODEL_KEYWORDS[norm]) {
         return MODEL_KEYWORDS[norm];
     }
-    
+
     // Substring 容忍敘述型名稱
     for (const [key, value] of Object.entries(MODEL_KEYWORDS)) {
         if (norm.includes(key)) {
             return value;
         }
     }
-    
+
     return { name: null, fn: null };
 }
 
@@ -226,47 +233,47 @@ async function fetchProductUsageXml(axiosInstance, ip, candidatePaths = null, de
         '/hp/device/this.Device/ProductUsageDyn.xml',
         '/ProductUsageDyn.xml',
     ];
-    
+
     const schemes = ['http', 'https'];
     const headers = {
         'Accept': 'application/xml,text/xml;q=0.9,*/*;q=0.8',
         'User-Agent': 'nodejs-axios/LEDM-scraper',
     };
-    
+
     const config = {
         headers,
         validateStatus: () => true, // 接受所有狀態碼
     };
-    
+
     if (auth) {
         config.auth = {
             username: auth.username,
             password: auth.password,
         };
     }
-    
+
     for (const scheme of schemes) {
         const base = `${scheme}://${ip}`.replace(/\/$/, '');
         for (const p of candidatePaths) {
             const url = `${base}/${p.replace(/^\//, '')}`;
             try {
                 const response = await axiosInstance.get(url, config);
-                
+
                 if (debug) {
                     const ct = response.headers['content-type'] || '';
                     console.log(`[DEBUG] ${response.status} ${ct} ${url}`);
                 }
-                
+
                 if (response.status !== 200 || !response.data) {
                     continue;
                 }
-                
-                const content = typeof response.data === 'string' 
-                    ? response.data 
-                    : Buffer.isBuffer(response.data) 
-                        ? response.data.toString() 
-                        : JSON.stringify(response.data);
-                
+
+                const content = typeof response.data === 'string' ?
+                    response.data :
+                    Buffer.isBuffer(response.data) ?
+                    response.data.toString() :
+                    JSON.stringify(response.data);
+
                 if (await looksLikeProductUsageDyn(content, debug)) {
                     return content;
                 } else {
@@ -283,7 +290,7 @@ async function fetchProductUsageXml(axiosInstance, ip, candidatePaths = null, de
             }
         }
     }
-    
+
     return null;
 }
 
@@ -293,7 +300,7 @@ async function fetchProductUsageXml(axiosInstance, ip, candidatePaths = null, de
 function detectColumns(worksheet) {
     const headers = {};
     const range = xlsx.utils.decode_range(worksheet['!ref']);
-    
+
     // 讀取第一行作為標題
     for (let C = range.s.c; C <= range.e.c; ++C) {
         const cellAddress = xlsx.utils.encode_cell({ r: range.s.r, c: C });
@@ -302,31 +309,31 @@ function detectColumns(worksheet) {
             headers[C] = cell.v.toString().trim();
         }
     }
-    
+
     const ipCandidates = ['ip', 'IP', 'Ip', 'host', 'Host'];
     const modelCandidates = ['model', 'Model', '型號', '機型'];
     const userCandidates = ['username', 'Username', 'user', 'User'];
     const passCandidates = ['password', 'Password', 'pass', 'Pass'];
-    
+
     let ipCol = null;
     let modelCol = null;
     let userCol = null;
     let passCol = null;
-    
+
     for (const [col, header] of Object.entries(headers)) {
         if (ipCandidates.includes(header)) ipCol = header;
         if (modelCandidates.includes(header)) modelCol = header;
         if (userCandidates.includes(header)) userCol = header;
         if (passCandidates.includes(header)) passCol = header;
     }
-    
+
     if (!ipCol || !modelCol) {
         const missing = [];
         if (!ipCol) missing.push('IP 欄位（可用 ip/IP/host）');
         if (!modelCol) missing.push('型號欄位（可用 model/型號/機型）');
         throw new Error(`Excel 欄位缺少：${missing.join('、')}`);
     }
-    
+
     return { ipCol, modelCol, userCol, passCol };
 }
 
@@ -334,20 +341,20 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
     const workbook = xlsx.readFile(excelPath);
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
-    
+
     const { ipCol, modelCol, userCol, passCol } = detectColumns(worksheet);
-    
+
     // 轉換為 JSON 格式
     const data = xlsx.utils.sheet_to_json(worksheet);
-    
+
     const axiosInstance = makeAxiosInstance();
     const rows = [];
-    
+
     for (let idx = 0; idx < data.length; idx++) {
         const row = data[idx];
         const ip = (row[ipCol] || '').toString().trim();
         const model = (row[modelCol] || '').toString().trim();
-        
+
         // Optional Basic Auth
         let auth = null;
         if (userCol && passCol) {
@@ -357,9 +364,9 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
                 auth = { username: u.toString(), password: p.toString() };
             }
         }
-        
+
         const { name: parserName, fn: parserFn } = resolveParser(model);
-        
+
         const result = {
             host: ip,
             model: model,
@@ -372,7 +379,7 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
             pcl6_total_impressions: null,
             status: 'ok',
         };
-        
+
         if (!parserFn) {
             result.status = 'unknown_model';
             if (debug) {
@@ -381,7 +388,7 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
             rows.push(result);
             continue;
         }
-        
+
         const xmlContent = await fetchProductUsageXml(axiosInstance, ip, null, debug, auth);
         if (!xmlContent) {
             result.status = 'no_xml';
@@ -391,7 +398,7 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
             rows.push(result);
             continue;
         }
-        
+
         try {
             const parsed = await parserFn(xmlContent);
             Object.assign(result, parsed);
@@ -401,20 +408,20 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
                 console.log(`[DEBUG] row ${idx}: parse_error ${e.constructor.name}: ${e.message}`);
             }
         }
-        
+
         rows.push(result);
     }
-    
+
     // 寫入 CSV
     const outputWorksheet = xlsx.utils.json_to_sheet(rows);
     const outputWorkbook = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(outputWorkbook, outputWorksheet, 'Results');
     xlsx.writeFile(outputWorkbook, outputCsv);
-    
+
     if (debug) {
         console.log(`[DEBUG] wrote ${outputCsv} with ${rows.length} rows`);
     }
-    
+
     return rows;
 }
 
@@ -423,16 +430,16 @@ async function processExcel(excelPath, outputCsv = 'hp_usage_output.csv', debug 
 // ---------------------------
 async function main() {
     const program = new Command();
-    
+
     program
         .description('Fetch HP LEDM ProductUsageDyn stats')
         .requiredOption('--excel <path>', 'path to printers.xlsx')
         .option('--out <path>', 'output CSV path', 'hp_usage_output.csv')
         .option('--debug', 'enable debug logging', false);
-    
+
     program.parse(process.argv);
     const options = program.opts();
-    
+
     try {
         await processExcel(options.excel, options.out, options.debug);
         console.log(`✓ 完成！結果已儲存至 ${options.out}`);

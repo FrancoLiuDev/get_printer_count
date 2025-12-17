@@ -17,6 +17,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, Tuple, Union, Dict, Any, List
+import socket
 
 import pandas as pd
 import requests
@@ -136,6 +137,56 @@ def resolve_parser(model_str: str) -> Tuple[Optional[str], Optional[Any]]:
         if key in norm:  # substring 容忍敘述型名稱
             return name, fn
     return None, None
+
+# ---------------------------
+# 網路連線測試
+# ---------------------------
+def check_port_open(ip: str, port: int, timeout: int = 2) -> bool:
+    """
+    測試指定 IP 的端口是否可連線
+    :param ip: 目標 IP 位址
+    :param port: 端口號碼
+    :param timeout: 連線逾時秒數
+    :return: True 表示端口開放，False 表示無法連線
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout)
+    try:
+        result = sock.connect_ex((ip, port))
+        sock.close()
+        return result == 0
+    except socket.error:
+        return False
+    except Exception:
+        return False
+
+def check_host_reachable(ip: str, timeout: int = 2, debug: bool = False) -> bool:
+    """
+    檢查主機是否可連線（測試 22 和 443 端口）
+    :param ip: 目標 IP 位址
+    :param timeout: 連線逾時秒數
+    :param debug: 是否顯示除錯訊息
+    :return: True 表示至少一個端口可連線，False 表示都無法連線
+    """
+    # 測試 SSH (22) 和 HTTPS (443) 端口
+    port_22_open = check_port_open(ip, 22, timeout)
+    port_443_open = check_port_open(ip, 443, timeout)
+    
+    is_reachable = port_22_open or port_443_open
+    
+    if debug:
+        ports_status = []
+        if port_22_open:
+            ports_status.append("22:開放")
+        if port_443_open:
+            ports_status.append("443:開放")
+        
+        if is_reachable:
+            print(f"[DEBUG] 連線測試 {ip}: 成功 ({', '.join(ports_status)})")
+        else:
+            print(f"[DEBUG] 連線測試 {ip}: 失敗 (22和443端口都無法連線)")
+    
+    return is_reachable
 
 # ---------------------------
 # HTTP
@@ -279,6 +330,15 @@ def process_excel(excel_path: str,
             "pcl6_total_impressions": None,
             "status": "ok",
         }
+
+        # 先檢查端口是否可連線（測試 22 和 443）
+        if not check_host_reachable(ip, timeout=2, debug=debug):
+            result["status"] = "port_closed"
+            print(f"❌ 端口無法連線")
+            if debug:
+                print(f"[DEBUG] row {idx}: 22和443端口都無法連線")
+            rows.append(result)
+            continue
 
         if parser_fn is None:
             result["status"] = "unknown_model"

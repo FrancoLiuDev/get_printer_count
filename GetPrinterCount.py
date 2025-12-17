@@ -291,10 +291,26 @@ def detect_columns(df: pd.DataFrame) -> Tuple[str, str, Optional[str], Optional[
 
 def process_excel(excel_path: str,
                   output_csv: str = "hp_usage_output.csv",
+                  scan_code: str = None,
                   debug: bool = False) -> pd.DataFrame:
     df = pd.read_excel(excel_path)
     ip_col, model_col, user_col, pass_col = detect_columns(df)
 
+    # 偵測 scan_code 欄位
+    scan_code_col = None
+    for candidate in ["scan_code", "Scan_Code", "SCAN_CODE", "scancode", "ScanCode", "掃描碼", "設備代碼"]:
+        if candidate in df.columns:
+            scan_code_col = candidate
+            break
+    
+    # 如果指定了 scan_code 參數，進行篩選
+    original_total = len(df)
+    if scan_code and scan_code_col:
+        df = df[df[scan_code_col].astype(str).str.strip() == scan_code.strip()]
+        print(f"根據 scan_code '{scan_code}' 篩選：從 {original_total} 台篩選出 {len(df)} 台")
+    elif scan_code and not scan_code_col:
+        print(f"警告：指定了 scan_code 參數 '{scan_code}'，但 Excel 中找不到 scan_code 欄位")
+    
     session = make_session()
     rows = []
     total = len(df)
@@ -330,6 +346,10 @@ def process_excel(excel_path: str,
             "pcl6_total_impressions": None,
             "status": "ok",
         }
+        
+        # 加入 scan_code 欄位（如果存在）
+        if scan_code_col and scan_code_col in df.columns:
+            result["scan_code"] = str(row[scan_code_col]) if pd.notna(row[scan_code_col]) else ""
 
         # 先檢查端口是否可連線（測試 22 和 443）
         if not check_host_reachable(ip, timeout=2, debug=debug):
@@ -392,10 +412,11 @@ def main():
     ap = argparse.ArgumentParser(description="Fetch HP LEDM ProductUsageDyn stats")
     ap.add_argument("--excel", required=True, help="path to printers.xlsx")
     ap.add_argument("--out", default="hp_usage_output.csv", help="output CSV path")
+    ap.add_argument("--scan_code", default=None, help="filter by scan_code value in Excel")
     ap.add_argument("--debug", action="store_true", help="enable debug logging")
     args = ap.parse_args()
 
-    process_excel(args.excel, output_csv=args.out, debug=args.debug)
+    process_excel(args.excel, output_csv=args.out, scan_code=args.scan_code, debug=args.debug)
 
 if __name__ == "__main__":
     main()

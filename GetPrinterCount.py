@@ -140,10 +140,16 @@ def resolve_parser(model_str: str) -> Tuple[Optional[str], Optional[Any]]:
 # ---------------------------
 # HTTP
 # ---------------------------
-def make_session(timeout: Tuple[int, int]=(5, 10)) -> requests.Session:
+def make_session(timeout: Tuple[int, int]=(3, 5)) -> requests.Session:
+    """
+    建立 HTTP session，降低 timeout 以加快失敗設備的處理
+    timeout: (connect_timeout, read_timeout) 預設 (3, 5) 秒
+    """
     s = requests.Session()
-    retries = Retry(total=3, backoff_factor=0.5,
-                    status_forcelist=[429, 500, 502, 503, 504])
+    # 減少重試次數，加快失敗設備的跳過速度
+    retries = Retry(total=1, backoff_factor=0.3,
+                    status_forcelist=[429, 500, 502, 503, 504],
+                    raise_on_status=False)  # 不要在狀態碼錯誤時拋出異常
     s.mount("http://", HTTPAdapter(max_retries=retries))
     s.mount("https://", HTTPAdapter(max_retries=retries))
     s.request_timeout = timeout
@@ -188,9 +194,25 @@ def fetch_product_usage_xml(session: requests.Session,
                     if debug:
                         preview = r.content[:200]
                         print(f"[DEBUG] not ProductUsageDyn (preview): {preview!r}")
+            except requests.Timeout as e:
+                # Timeout 錯誤：直接跳過，不影響其他設備
+                if debug:
+                    print(f"[DEBUG] timeout {url}: {e}")
+                continue
+            except requests.ConnectionError as e:
+                # 連線錯誤：設備可能離線或 IP 不存在
+                if debug:
+                    print(f"[DEBUG] connection error {url}: {e}")
+                continue
             except requests.RequestException as e:
+                # 其他請求錯誤
                 if debug:
                     print(f"[DEBUG] request error {url}: {type(e).__name__} {e}")
+                continue
+            except Exception as e:
+                # 捕捉所有其他異常，確保程式不會中斷
+                if debug:
+                    print(f"[DEBUG] unexpected error {url}: {type(e).__name__} {e}")
                 continue
     return None
 
@@ -224,10 +246,16 @@ def process_excel(excel_path: str,
 
     session = make_session()
     rows = []
+    total = len(df)
+    
+    print(f"開始處理 {total} 台印表機...")
+    
     for idx, row in df.iterrows():
         ip = str(row[ip_col]).strip()
         model_raw = row[model_col]
         model = "" if pd.isna(model_raw) else str(model_raw).strip()
+        
+        print(f"[{idx+1}/{total}] 正在連線 {ip} ({model})...", end=" ", flush=True)
 
         # Optional Basic Auth
         auth = None
@@ -254,6 +282,7 @@ def process_excel(excel_path: str,
 
         if parser_fn is None:
             result["status"] = "unknown_model"
+            print(f"❌ 不支援的型號")
             if debug:
                 print(f"[DEBUG] row {idx}: unknown_model -> '{model}'")
             rows.append(result)
@@ -262,6 +291,7 @@ def process_excel(excel_path: str,
         xml_bytes = fetch_product_usage_xml(session, ip, debug=debug, auth=auth)
         if xml_bytes is None:
             result["status"] = "no_xml"
+            print(f"❌ 無法連線或逾時")
             if debug:
                 print(f"[DEBUG] row {idx}: no_xml for {ip}")
             rows.append(result)
@@ -271,8 +301,10 @@ def process_excel(excel_path: str,
             parsed = parser_fn(xml_bytes)
             for k, v in parsed.items():
                 result[k] = v
+            print(f"✓ 成功")
         except Exception as e:
             result["status"] = f"parse_error:{type(e).__name__}"
+            print(f"❌ 解析錯誤")
             if debug:
                 print(f"[DEBUG] row {idx}: parse_error {type(e).__name__}: {e}")
 
@@ -280,6 +312,15 @@ def process_excel(excel_path: str,
 
     out = pd.DataFrame(rows)
     out.to_csv(output_csv, index=False)
+    
+    # 統計結果
+    success_count = len(out[out['status'] == 'ok'])
+    fail_count = total - success_count
+    print(f"\n{'='*50}")
+    print(f"處理完成！成功: {success_count} 台，失敗: {fail_count} 台")
+    print(f"結果已儲存至: {output_csv}")
+    print(f"{'='*50}")
+    
     if debug:
         print(f"[DEBUG] wrote {output_csv} with {len(out)} rows")
     return out

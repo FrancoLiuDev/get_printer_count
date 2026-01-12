@@ -92,9 +92,8 @@ def CP1525_M251nw_M254dw_M255dw(xml_source: Union[str, Path, bytes]) -> Dict[str
     }
 
 def M4103fdn(xml_source: Union[str, Path, bytes]) -> Dict[str, Any]:
-    """4103fdn：PCL6Impressions 的 TotalImpressions"""
+    """M4103fdn / M402：單一 TotalImpressions"""
     root = _load_xml_root(xml_source)
-    # pcl6_total = _get_text(root.find("./pudyn:PrinterSubunit/dd:PCL6Impressions/dd:TotalImpressions", NS))
     printer_total = _get_text(root.find("./pudyn:PrinterSubunit/dd:TotalImpressions", NS))
     
     return {
@@ -120,10 +119,15 @@ MODEL_KEYWORDS: Dict[str, Tuple[str, Any]] = {
     "m254dw": ("CP1525_M251nw_M254dw_M255dw", CP1525_M251nw_M254dw_M255dw),
     "m255dw": ("CP1525_M251nw_M254dw_M255dw", CP1525_M251nw_M254dw_M255dw),
 
-    # 4103fdn -> PCL6 TotalImpressions
+    # 4103fdn / M402 -> TotalImpressions
     "4103fdn": ("M4103fdn", M4103fdn),
     "m4103fdn": ("M4103fdn", M4103fdn),
     "laserjetpro4103fdn": ("M4103fdn", M4103fdn),
+    "m402": ("M4103fdn", M4103fdn),
+    "m402dn": ("M4103fdn", M4103fdn),
+    "m402n": ("M4103fdn", M4103fdn),
+    "m402dw": ("M4103fdn", M4103fdn),
+    "laserjetpro402": ("M4103fdn", M4103fdn),
 }
 
 def resolve_parser(model_str: str) -> Tuple[Optional[str], Optional[Any]]:
@@ -335,6 +339,7 @@ def process_excel(excel_path: str,
         parser_name, parser_fn = resolve_parser(model)
 
         result: Dict[str, Any] = {
+            "scan_code": str(row[scan_code_col]) if (scan_code_col and scan_code_col in df.columns and pd.notna(row[scan_code_col])) else "",
             "host": ip,
             "model": model,
             "parser_used": parser_name,
@@ -346,10 +351,6 @@ def process_excel(excel_path: str,
             "pcl6_total_impressions": None,
             "status": "ok",
         }
-        
-        # 加入 scan_code 欄位（如果存在）
-        if scan_code_col and scan_code_col in df.columns:
-            result["scan_code"] = str(row[scan_code_col]) if pd.notna(row[scan_code_col]) else ""
 
         # 先檢查端口是否可連線（測試 22 和 443）
         if not check_host_reachable(ip, timeout=2, debug=debug):

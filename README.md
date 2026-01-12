@@ -133,3 +133,13 @@ MIT License
 ## 作者
 
 Franco Liu
+
+
+ candidate_paths = candidate_paths or [
+        "/DevMgmt/ProductUsageDyn.xml",
+        "/hp/device/ProductUsageDyn.xml",
+        "/hp/device/this.Device/ProductUsageDyn.xml",
+        "/ProductUsageDyn.xml",
+    ]
+
+M402 -> /DevMgmt/ProductUsageDyn.xml

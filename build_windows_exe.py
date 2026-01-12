@@ -29,7 +29,19 @@ pyinstaller_args = [
     '--clean',                      # 清除暫存檔
     '--noconfirm',                  # 不詢問覆蓋
     # '--icon=printer.ico',         # 如果有圖示檔可以加上
-    '--add-data=GetPrinterCount.py:.',  # 包含原始檔案（選用）
+    # 排除不需要的大型依賴
+    '--exclude-module=torch',
+    '--exclude-module=torchvision',
+    '--exclude-module=matplotlib',
+    '--exclude-module=scipy',
+    '--exclude-module=PIL',
+    '--exclude-module=cv2',
+    '--exclude-module=tensorflow',
+    '--exclude-module=transformers',
+    '--exclude-module=onnxruntime',
+    '--exclude-module=triton',
+    '--exclude-module=nvidia',
+    '--exclude-module=sympy',
 ]
 
 if __name__ == '__main__':

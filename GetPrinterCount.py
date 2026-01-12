@@ -18,10 +18,15 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional, Tuple, Union, Dict, Any, List
 import socket
+import ssl
+import urllib3
 
 import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter, Retry
+
+# 禁用 SSL 警告
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ---------------------------
 # XML Namespaces
@@ -195,6 +200,18 @@ def check_host_reachable(ip: str, timeout: int = 2, debug: bool = False) -> bool
 # ---------------------------
 # HTTP
 # ---------------------------
+class LegacySSLAdapter(HTTPAdapter):
+    """支援舊版 SSL/TLS 協議的 Adapter"""
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        # 允許所有 TLS 版本，包括舊版本
+        ctx.minimum_version = ssl.TLSVersion.MINIMUM_SUPPORTED
+        ctx.set_ciphers('DEFAULT@SECLEVEL=1')
+        kwargs['ssl_context'] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
 def make_session(timeout: Tuple[int, int]=(3, 5)) -> requests.Session:
     """
     建立 HTTP session，降低 timeout 以加快失敗設備的處理
@@ -205,8 +222,11 @@ def make_session(timeout: Tuple[int, int]=(3, 5)) -> requests.Session:
     retries = Retry(total=1, backoff_factor=0.3,
                     status_forcelist=[429, 500, 502, 503, 504],
                     raise_on_status=False)  # 不要在狀態碼錯誤時拋出異常
-    s.mount("http://", HTTPAdapter(max_retries=retries))
-    s.mount("https://", HTTPAdapter(max_retries=retries))
+    
+    # 使用支援舊版 SSL 的 Adapter
+    adapter = LegacySSLAdapter(max_retries=retries)
+    s.mount("http://", adapter)
+    s.mount("https://", adapter)
     s.request_timeout = timeout
     return s
 

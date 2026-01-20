@@ -25,6 +25,16 @@ import pandas as pd
 import requests
 from requests.adapters import HTTPAdapter, Retry
 
+# SNMP 支援（用於 FUJI）
+try:
+    from pysnmp.hlapi import (
+        SnmpEngine, CommunityData, UdpTransportTarget,
+        ContextData, ObjectType, ObjectIdentity, getCmd
+    )
+    SNMP_AVAILABLE = True
+except ImportError:
+    SNMP_AVAILABLE = False
+
 # 禁用 SSL 警告
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -146,6 +156,118 @@ def resolve_parser(model_str: str) -> Tuple[Optional[str], Optional[Any]]:
         if key in norm:  # substring 容忍敘述型名稱
             return name, fn
     return None, None
+
+# ---------------------------
+# SNMP 查詢輔助函數
+# ---------------------------
+def snmp_get_value(ip: str, oid: str, community: str = "public", timeout: int = 3, debug: bool = False) -> Optional[int]:
+    """
+    透過 SNMP 查詢指定 OID 的值
+    :param ip: 目標 IP 位址
+    :param oid: SNMP OID (MIB)
+    :param community: SNMP community string
+    :param timeout: 超時時間（秒）
+    :param debug: 是否顯示除錯訊息
+    :return: 查詢到的整數值，失敗則返回 None
+    """
+    if not SNMP_AVAILABLE:
+        if debug:
+            print(f"[DEBUG] pysnmp 未安裝，無法執行 SNMP 查詢")
+        return None
+    
+    if debug:
+        print(f"[DEBUG] SNMP 查詢 {ip} OID: {oid}")
+    
+    try:
+        # 執行 SNMP GET
+        iterator = getCmd(
+            SnmpEngine(),
+            CommunityData(community, mpModel=0),  # SNMPv1
+            UdpTransportTarget((ip, 161), timeout=timeout, retries=1),
+            ContextData(),
+            ObjectType(ObjectIdentity(oid))
+        )
+        
+        errorIndication, errorStatus, errorIndex, varBinds = next(iterator)
+        
+        if errorIndication:
+            if debug:
+                print(f"[DEBUG] SNMP 錯誤: {errorIndication}")
+            return None
+        elif errorStatus:
+            if debug:
+                print(f"[DEBUG] SNMP 錯誤狀態: {errorStatus.prettyPrint()}")
+            return None
+        else:
+            for varBind in varBinds:
+                value = str(varBind[1])
+                if debug:
+                    print(f"[DEBUG] SNMP 回應: {varBind[0]} = {value}")
+                
+                # 轉換為整數
+                try:
+                    return int(value)
+                except ValueError:
+                    if debug:
+                        print(f"[DEBUG] 無法轉換值為整數: {value}")
+                    return None
+    
+    except Exception as e:
+        if debug:
+            print(f"[DEBUG] SNMP 查詢異常: {type(e).__name__}: {e}")
+        return None
+    
+    return None
+
+# ---------------------------
+# FUJI 處理邏輯
+# ---------------------------
+def process_fuji_printer(ip: str, model: str, debug: bool = False) -> Dict[str, Any]:
+    """
+    FUJI 印表機處理邏輯（使用 SNMP）
+    :param ip: 印表機 IP
+    :param model: 型號
+    :param debug: 除錯模式
+    :return: 查詢結果字典
+    """
+    if debug:
+        print(f"[DEBUG] FUJI 處理邏輯 - IP: {ip}, Model: {model}")
+    
+    result = {
+        "printer_total_impressions": None,
+        "copy_total_impressions": None,
+        "fax_total_impressions": None,
+        "mono_impressions": None,
+        "color_impressions": None,
+        "pcl6_total_impressions": None,
+    }
+    
+    if not SNMP_AVAILABLE:
+        if debug:
+            print(f"[DEBUG] pysnmp 未安裝，無法使用 SNMP 查詢 FUJI 印表機")
+        raise ImportError("pysnmp 模組未安裝，請執行: pip install pysnmp")
+    
+    # 型號對應的 OID 配置
+    model_normalized = _normalize_model(model)
+    
+    # 4830 型號使用標準 Printer MIB OID
+    if "4830" in model_normalized:
+        oid = ".1.3.6.1.4.1.297.1.111.1.41.1.1.2.3"  # prtMarkerLifeCount
+        
+        # 使用 SNMP 查詢函數
+        value = snmp_get_value(ip, oid, community="public", timeout=3, debug=debug)
+        
+        if value is not None:
+            result["printer_total_impressions"] = value
+        else:
+            if debug:
+                print(f"[DEBUG] SNMP 查詢失敗，無法取得值")
+            raise Exception("SNMP query failed")
+    else:
+        if debug:
+            print(f"[DEBUG] 未知的 FUJI 型號: {model}")
+    
+    return result
 
 # ---------------------------
 # 網路連線測試
@@ -294,31 +416,33 @@ def fetch_product_usage_xml(session: requests.Session,
 # ---------------------------
 # Excel
 # ---------------------------
-def detect_columns(df: pd.DataFrame) -> Tuple[str, str, Optional[str], Optional[str]]:
-    """自動偵測 IP / 型號，以及可選的 username / password 欄位"""
+def detect_columns(df: pd.DataFrame) -> Tuple[str, str, Optional[str], Optional[str], Optional[str]]:
+    """自動偵測 IP / 型號，以及可選的 username / password / vender 欄位"""
     ip_candidates = ["ip", "IP", "Ip", "host", "Host"]
     model_candidates = ["model", "Model", "型號", "機型"]
     user_candidates = ["username", "Username", "user", "User"]
     pass_candidates = ["password", "Password", "pass", "Pass"]
+    vender_candidates = ["vender", "Vender", "VENDER", "vendor", "Vendor", "廠商"]
 
     ip_col = next((c for c in ip_candidates if c in df.columns), None)
     model_col = next((c for c in model_candidates if c in df.columns), None)
     user_col = next((c for c in user_candidates if c in df.columns), None)
     pass_col = next((c for c in pass_candidates if c in df.columns), None)
+    vender_col = next((c for c in vender_candidates if c in df.columns), None)
 
     if not ip_col or not model_col:
         missing = []
         if not ip_col: missing.append("IP 欄位（可用 ip/IP/host）")
         if not model_col: missing.append("型號欄位（可用 model/型號/機型）")
         raise ValueError("Excel 欄位缺少：" + "、".join(missing))
-    return ip_col, model_col, user_col, pass_col
+    return ip_col, model_col, user_col, pass_col, vender_col
 
 def process_excel(excel_path: str,
                   output_csv: str = "hp_usage_output.csv",
                   scan_code: str = None,
                   debug: bool = False) -> pd.DataFrame:
     df = pd.read_excel(excel_path)
-    ip_col, model_col, user_col, pass_col = detect_columns(df)
+    ip_col, model_col, user_col, pass_col, vender_col = detect_columns(df)
 
     # 偵測 scan_code 欄位
     scan_code_col = None
@@ -346,8 +470,55 @@ def process_excel(excel_path: str,
         model_raw = row[model_col]
         model = "" if pd.isna(model_raw) else str(model_raw).strip()
         
-        print(f"[{idx+1}/{total}] 正在連線 {ip} ({model})...", end=" ", flush=True)
+        # 取得 vender（預設為 HP）
+        vender = "HP"
+        if vender_col and pd.notna(row[vender_col]):
+            vender = str(row[vender_col]).strip().upper()
+        
+        print(f"[{idx+1}/{total}] 正在連線 {ip} ({vender} {model})...", end=" ", flush=True)
 
+        result: Dict[str, Any] = {
+            "scan_code": str(row[scan_code_col]) if (scan_code_col and scan_code_col in df.columns and pd.notna(row[scan_code_col])) else "",
+            "host": ip,
+            "vender": vender,
+            "model": model,
+            "parser_used": None,
+            "printer_total_impressions": None,
+            "copy_total_impressions": None,
+            "fax_total_impressions": None,
+            "mono_impressions": None,
+            "color_impressions": None,
+            "pcl6_total_impressions": None,
+            "status": "ok",
+        }
+
+        # 根據 vender 選擇處理邏輯
+        if vender == "FUJI":
+            # FUJI 處理邏輯
+            if not check_host_reachable(ip, timeout=2, debug=debug):
+                result["status"] = "port_closed"
+                print(f"❌ 端口無法連線")
+                if debug:
+                    print(f"[DEBUG] row {idx}: 22和443端口都無法連線")
+                rows.append(result)
+                continue
+            
+            try:
+                fuji_data = process_fuji_printer(ip, model, debug=debug)
+                for k, v in fuji_data.items():
+                    result[k] = v
+                result["parser_used"] = "FUJI"
+                print(f"✓ 成功")
+            except Exception as e:
+                result["status"] = f"fuji_error:{type(e).__name__}"
+                print(f"❌ FUJI 處理錯誤")
+                if debug:
+                    print(f"[DEBUG] row {idx}: fuji_error {type(e).__name__}: {e}")
+            
+            rows.append(result)
+            continue
+        
+        # HP 處理邏輯（原有邏輯）
         # Optional Basic Auth
         auth = None
         if user_col and pass_col:
@@ -357,20 +528,7 @@ def process_excel(excel_path: str,
                 auth = (str(u), str(p))
 
         parser_name, parser_fn = resolve_parser(model)
-
-        result: Dict[str, Any] = {
-            "scan_code": str(row[scan_code_col]) if (scan_code_col and scan_code_col in df.columns and pd.notna(row[scan_code_col])) else "",
-            "host": ip,
-            "model": model,
-            "parser_used": parser_name,
-            "printer_total_impressions": None,
-            "copy_total_impressions": None,
-            "fax_total_impressions": None,
-            "mono_impressions": None,
-            "color_impressions": None,
-            "pcl6_total_impressions": None,
-            "status": "ok",
-        }
+        result["parser_used"] = parser_name
 
         # 先檢查端口是否可連線（測試 22 和 443）
         if not check_host_reachable(ip, timeout=2, debug=debug):

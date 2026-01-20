@@ -60,7 +60,7 @@ npm install
 ```bash
 node GetPrinterCount.js --excel printers.xlsx --out output.csv --debug
 ```
-
+python3 GetPrinterCount.py --excel printers.xlsx --out output.csv --debug
 ## Excel 檔案格式
 
 ### 必填欄位

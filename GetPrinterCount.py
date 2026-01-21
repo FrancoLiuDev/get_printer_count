@@ -179,10 +179,10 @@ def snmp_get_value(ip: str, oid: str, community: str = "public", timeout: int = 
         print(f"[DEBUG] SNMP 查詢 {ip} OID: {oid}")
     
     try:
-        # 執行 SNMP GET
+        # 執行 SNMP GET (使用 SNMPv2c)
         iterator = getCmd(
             SnmpEngine(),
-            CommunityData(community, mpModel=0),  # SNMPv1
+            CommunityData(community, mpModel=1),  # SNMPv2c
             UdpTransportTarget((ip, 161), timeout=timeout, retries=1),
             ContextData(),
             ObjectType(ObjectIdentity(oid))
@@ -222,11 +222,12 @@ def snmp_get_value(ip: str, oid: str, community: str = "public", timeout: int = 
 # ---------------------------
 # FUJI 處理邏輯
 # ---------------------------
-def process_fuji_printer(ip: str, model: str, debug: bool = False) -> Dict[str, Any]:
+def process_fuji_printer(ip: str, model: str, community: str = "public", debug: bool = False) -> Dict[str, Any]:
     """
     FUJI 印表機處理邏輯（使用 SNMP）
     :param ip: 印表機 IP
     :param model: 型號
+    :param community: SNMP Community String (密碼)
     :param debug: 除錯模式
     :return: 查詢結果字典
     """
@@ -254,8 +255,8 @@ def process_fuji_printer(ip: str, model: str, debug: bool = False) -> Dict[str, 
     if "4830" in model_normalized:
         oid = ".1.3.6.1.4.1.297.1.111.1.41.1.1.2.3"  # prtMarkerLifeCount
         
-        # 使用 SNMP 查詢函數
-        value = snmp_get_value(ip, oid, community="public", timeout=3, debug=debug)
+        # 使用 SNMP 查詢函數，傳入 community string
+        value = snmp_get_value(ip, oid, community=community, timeout=3, debug=debug)
         
         if value is not None:
             result["printer_total_impressions"] = value
@@ -503,8 +504,13 @@ def process_excel(excel_path: str,
                 rows.append(result)
                 continue
             
+            # 取得 SNMP community string (從 password 欄位)
+            community = "public"  # 預設值
+            if pass_col and pd.notna(row[pass_col]):
+                community = str(row[pass_col]).strip()
+            
             try:
-                fuji_data = process_fuji_printer(ip, model, debug=debug)
+                fuji_data = process_fuji_printer(ip, model, community=community, debug=debug)
                 for k, v in fuji_data.items():
                     result[k] = v
                 result["parser_used"] = "FUJI"

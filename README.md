@@ -143,3 +143,6 @@ Franco Liu
     ]
 
 M402 -> /DevMgmt/ProductUsageDyn.xml
+
+priv12345
+snmpadmin
